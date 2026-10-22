@@ -1,0 +1,98 @@
+# Local agent stack: llama.cpp LLM + RealWaste classifier + MCP server, all on one 8 GB GPU.
+# Configure in .env (copy .env.example). Start:  docker compose up -d --build
+# The Python agent (agent/agent.py) runs on the host and talks to ports 8080 (LLM) and 8100 (MCP).
+
+x-gpu: &gpu
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
+services:
+  llm:
+    <<: *gpu
+    image: ghcr.io/ggml-org/llama.cpp:${LLAMA_IMAGE_TAG:-server-cuda13}
+    restart: unless-stopped
+    environment:
+      LLAMA_CACHE: /models               # -hf downloads land here (persisted in ./models)
+    volumes:
+      - ./models:/models
+    ports:
+      - "127.0.0.1:8080:8080"
+    # Every memory-relevant setting is explicit; --fit off stops llama.cpp from changing them.
+    command:
+      - -hf
+      - ${LLM_MODEL:-Qwen/Qwen3-8B-GGUF:Q4_K_M}
+      - --alias
+      - ${LLM_ALIAS:-local}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --fit
+      - "off"
+      - -ngl
+      - all                              # all layers on the GPU
+      - -c
+      - "${LLM_CTX:-12288}"              # context window (KV cache size)
+      - -np
+      - "1"                              # one slot: the whole context belongs to the single agent
+      - -fa
+      - "on"                             # flash attention (required for a quantized V cache)
+      - -ctk
+      - ${LLM_KV_TYPE:-q8_0}             # KV cache in 8 bit: half the memory of f16
+      - -ctv
+      - ${LLM_KV_TYPE:-q8_0}
+      - --jinja                          # model's own chat template -> native tool calling
+      - --reasoning-format
+      - deepseek                         # thinking goes to reasoning_content, not the answer
+      - --temp
+      - "0.3"
+      - --top-p
+      - "0.8"
+      - --top-k
+      - "20"
+      - --metrics                        # Prometheus metrics at /metrics
+
+  classifier:
+    <<: *gpu
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    image: realwaste-api:gpu
+    restart: unless-stopped
+    environment:
+      GPU_MEM_LIMIT_MB: ${CLASSIFIER_GPU_MB:-768}
+      MAX_BATCH: "32"
+      WARMUP_BATCH: ${CHUNK_SIZE:-16}
+    volumes:
+      - ./app/model:/srv/app/model:ro
+    ports:
+      - "127.0.0.1:8000:8000"            # direct API access stays available
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  mcp:
+    build: ./mcp_server
+    image: realwaste-mcp
+    restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      CLASSIFIER_URL: http://classifier:8000
+      IMAGE_ROOT: /images
+      HOST_IMAGE_ROOT: ${IMAGE_DIR:?set IMAGE_DIR in .env}
+      CHUNK_SIZE: ${CHUNK_SIZE:-16}
+      LOW_CONFIDENCE: "0.6"
+    volumes:
+      - ${IMAGE_DIR}:/images:ro          # the only files the agent can reach
+    ports:
+      - "127.0.0.1:8100:8100"
+    depends_on:
+      classifier:
+        condition: service_healthy

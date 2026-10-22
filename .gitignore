@@ -1,0 +1,45 @@
+# ---- Large files: data, weights, models -------------------------------------
+# Dataset (download with: kaggle datasets download joebeachcapital/realwaste -p data --unzip)
+data/
+
+# Training checkpoints (~110 MB each); keep the small metrics/metadata JSON
+runs/**/*.pt
+runs/**/splits.json
+
+# Exported ONNX model (recreate with export_onnx.py)
+app/model/*
+!app/model/.gitkeep
+
+# llama.cpp model cache (GGUF files, several GB; downloaded automatically)
+models/
+
+# Any stray weights or archives elsewhere
+*.pt
+*.pth
+*.onnx
+*.gguf
+*.safetensors
+*.zip
+*.tar
+*.tar.gz
+
+# ---- Environments and secrets ------------------------------------------------
+.venv/
+venv/
+**/.venv/
+.env
+kaggle.json
+
+# ---- Python / tooling ---------------------------------------------------------
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- Editors / OS -------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+.DS_Store

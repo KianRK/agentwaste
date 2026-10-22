@@ -1,0 +1,9 @@
+# Install PyTorch with CUDA first (see README), then:
+#   pip install -r requirements-train.txt
+timm>=1.0
+scikit-learn>=1.4
+pillow>=10.0
+numpy>=1.26
+onnx>=1.16
+onnxruntime>=1.19
+kaggle>=1.6
